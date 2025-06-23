@@ -1,4 +1,4 @@
-using Microsoft.CodeAnalysis;
+﻿using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
@@ -145,7 +145,7 @@ internal class Parser(ConsoleAppFrameworkGeneratorOptions generatorOptions, Diag
             TypeFullName = type.ToFullyQualifiedFormatDisplayString(),
             IsIDisposable = hasIDisposable,
             IsIAsyncDisposable = hasIAsyncDisposable,
-            ConstructorParameterTypes = publicConstructors[0].Parameters.Select(x => new EquatableTypeSymbol(x.Type)).ToArray(),
+            ConstructorParameterTypes = publicConstructors[0].Parameters.Select(x => new EquatableTypeSymbolWithKeyedServiceKey(x)).ToArray(),
             MethodName = "", // without method name
         };
 
@@ -285,6 +285,10 @@ internal class Parser(ConsoleAppFrameworkGeneratorOptions generatorOptions, Diag
 
                 var hasParams = x.Modifiers.Any(x => x.IsKind(SyntaxKind.ParamsKeyword));
 
+                var isHidden = x.AttributeLists
+                                .SelectMany(x => x.Attributes)
+                                .Any(x => model.GetTypeInfo(x).Type?.Name == "HiddenAttribute");
+
                 var customParserType = x.AttributeLists.SelectMany(x => x.Attributes)
                     .Select(x =>
                     {
@@ -319,6 +323,40 @@ internal class Parser(ConsoleAppFrameworkGeneratorOptions generatorOptions, Diag
 
                         var identifier = name.ToString();
                         return identifier is "FromServices" or "FromServicesAttribute";
+                    });
+
+                object? keyedServiceKey = null;
+                var isFromKeyedServices = x.AttributeLists.SelectMany(x => x.Attributes)
+                    .Any(x =>
+                    {
+                        var name = x.Name;
+                        if (x.Name is QualifiedNameSyntax qns)
+                        {
+                            name = qns.Right;
+                        }
+
+                        var identifier = name.ToString();
+                        var result = identifier is "FromKeyedServices" or "FromKeyedServicesAttribute";
+                        if (result)
+                        {
+                            SemanticModel semanticModel = model; // we can use SemanticModel
+                            if (x.ArgumentList?.Arguments.Count > 0)
+                            {
+                                var argumentExpression = x.ArgumentList.Arguments[0].Expression;
+
+                                var constantValue = semanticModel.GetConstantValue(argumentExpression);
+                                if (constantValue.HasValue)
+                                {
+                                    keyedServiceKey = constantValue.Value;
+                                }
+                                else if (argumentExpression is TypeOfExpressionSyntax typeOf)
+                                {
+                                    var typeInfo = semanticModel.GetTypeInfo(typeOf.Type);
+                                    keyedServiceKey = typeInfo.Type;
+                                }
+                            }
+                        }
+                        return result;
                     });
 
                 var hasArgument = x.AttributeLists.SelectMany(x => x.Attributes)
@@ -360,6 +398,7 @@ internal class Parser(ConsoleAppFrameworkGeneratorOptions generatorOptions, Diag
                     IsNullableReference = isNullableReference,
                     IsConsoleAppContext = isConsoleAppContext,
                     IsParams = hasParams,
+                    IsHidden = isHidden,
                     Type = new EquatableTypeSymbol(type.Type!),
                     Location = x.GetLocation(),
                     HasDefaultValue = hasDefault,
@@ -368,6 +407,8 @@ internal class Parser(ConsoleAppFrameworkGeneratorOptions generatorOptions, Diag
                     HasValidation = hasValidation,
                     IsCancellationToken = isCancellationToken,
                     IsFromServices = isFromServices,
+                    IsFromKeyedServices = isFromKeyedServices,
+                    KeyedServiceKey = keyedServiceKey,
                     Aliases = [],
                     Description = "",
                     ArgumentIndex = argumentIndex,
@@ -381,6 +422,7 @@ internal class Parser(ConsoleAppFrameworkGeneratorOptions generatorOptions, Diag
             Name = commandName,
             IsAsync = isAsync,
             IsVoid = isVoid,
+            IsHidden = false, // Anonymous lambda don't support attribute.
             Parameters = parameters,
             MethodKind = MethodKind.Lambda,
             Description = "",
@@ -472,6 +514,8 @@ internal class Parser(ConsoleAppFrameworkGeneratorOptions generatorOptions, Diag
             return null;
         }
 
+        var isHiddenCommand = methodSymbol.GetAttributes().Any(x => x.AttributeClass?.Name == "HiddenAttribute");
+
         var methodFilters = methodSymbol.GetAttributes()
             .Where(x => x.AttributeClass?.Name == "ConsoleAppFilterAttribute")
             .Select(x =>
@@ -512,10 +556,19 @@ internal class Parser(ConsoleAppFrameworkGeneratorOptions generatorOptions, Diag
             {
                 var customParserType = x.GetAttributes().FirstOrDefault(x => x.AttributeClass?.AllInterfaces.Any(y => y.Name == "IArgumentParser") ?? false);
                 var hasFromServices = x.GetAttributes().Any(x => x.AttributeClass?.Name == "FromServicesAttribute");
+                var hasFromKeyedServices = x.GetAttributes().Any(x => x.AttributeClass?.Name == "FromKeyedServicesAttribute");
                 var hasArgument = x.GetAttributes().Any(x => x.AttributeClass?.Name == "ArgumentAttribute");
                 var hasValidation = x.GetAttributes().Any(x => x.AttributeClass?.GetBaseTypes().Any(y => y.Name == "ValidationAttribute") ?? false);
                 var isCancellationToken = SymbolEqualityComparer.Default.Equals(x.Type, wellKnownTypes.CancellationToken);
                 var isConsoleAppContext = x.Type!.Name == "ConsoleAppContext";
+                var isHiddenParameter = x.GetAttributes().Any(x => x.AttributeClass?.Name == "HiddenAttribute");
+
+                object? keyedServiceKey = null;
+                if (hasFromKeyedServices)
+                {
+                    var attr = x.GetAttributes().First(x => x.AttributeClass?.Name == "FromKeyedServicesAttribute");
+                    keyedServiceKey = attr.ConstructorArguments[0].Value;
+                }
 
                 string description = "";
                 string[] aliases = [];
@@ -547,6 +600,7 @@ internal class Parser(ConsoleAppFrameworkGeneratorOptions generatorOptions, Diag
                     IsNullableReference = isNullableReference,
                     IsConsoleAppContext = isConsoleAppContext,
                     IsParams = x.IsParams,
+                    IsHidden = isHiddenParameter,
                     Location = x.DeclaringSyntaxReferences[0].GetSyntax().GetLocation(),
                     Type = new EquatableTypeSymbol(x.Type),
                     HasDefaultValue = x.HasExplicitDefaultValue,
@@ -554,6 +608,8 @@ internal class Parser(ConsoleAppFrameworkGeneratorOptions generatorOptions, Diag
                     CustomParserType = customParserType?.AttributeClass?.ToEquatable(),
                     IsCancellationToken = isCancellationToken,
                     IsFromServices = hasFromServices,
+                    IsFromKeyedServices = hasFromKeyedServices,
+                    KeyedServiceKey = keyedServiceKey,
                     HasValidation = hasValidation,
                     Aliases = aliases,
                     ArgumentIndex = argumentIndex,
@@ -567,6 +623,7 @@ internal class Parser(ConsoleAppFrameworkGeneratorOptions generatorOptions, Diag
             Name = commandName,
             IsAsync = isAsync,
             IsVoid = isVoid,
+            IsHidden = isHiddenCommand,
             Parameters = parameters,
             MethodKind = addressOf ? MethodKind.FunctionPointer : MethodKind.Method,
             Description = summary,

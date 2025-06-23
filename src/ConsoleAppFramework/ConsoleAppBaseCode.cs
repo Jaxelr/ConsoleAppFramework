@@ -1,4 +1,4 @@
-namespace ConsoleAppFramework;
+﻿namespace ConsoleAppFramework;
 
 public static class ConsoleAppBaseCode
 {
@@ -122,6 +122,11 @@ internal sealed class CommandAttribute : Attribute
     }
 }
 
+[AttributeUsage(AttributeTargets.Class | AttributeTargets.Method | AttributeTargets.Parameter, AllowMultiple = false, Inherited = false)]
+internal sealed class HiddenAttribute : Attribute
+{
+}
+
 [AttributeUsage(AttributeTargets.Class, AllowMultiple = false, Inherited = false)]
 internal sealed class RegisterCommandsAttribute : Attribute
 {
@@ -144,6 +149,8 @@ public class ConsoleAppFrameworkGeneratorOptionsAttribute : Attribute
     public bool DisableNamingConversion { get; set; }
 }
 
+[UnconditionalSuppressMessage("Trimming", "IL2026")]
+[UnconditionalSuppressMessage("AOT", "IL3050")]
 internal static partial class ConsoleApp
 {
     public static IServiceProvider? ServiceProvider { get; set; }

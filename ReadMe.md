@@ -697,6 +697,13 @@ The field secondArg must be between 0 and 2.
 
 By default, the ExitCode is set to 1 in this case.
 
+Hide command/parameter help
+---
+`ConsoleAppFramework` supports `HiddenAttribute` which is used to hide specific help for a command/parameter.
+
+- When`HiddenAttribute` is set to command, it hides command from command list.
+- When`HiddenAttribute` is set to parameter, it hides parameter from command help.
+
 Filter(Middleware) Pipeline / ConsoleAppContext
 ---
 Filters are provided as a mechanism to hook into the execution before and after. To use filters, define an `internal class` that implements `ConsoleAppFilter`.
@@ -930,7 +937,7 @@ app.Add("", ([FromServices] MyService service, int x, int y) => Console.WriteLin
 app.Run(args);
 ```
 
-When passing to a lambda expression or method, the `[FromServices]` attribute is used to distinguish it from command parameters. When passing a class, Constructor Injection can be used, resulting in a simpler appearance.
+When passing to a lambda expression or method, the `[FromServices]` attribute is used to distinguish it from command parameters. When passing a class, Constructor Injection can be used, resulting in a simpler appearance. Lambda, method, constructor, filter, etc, all DI supported parameter also supports `[FromKeyedServices]`.
 
 Let's try injecting a logger and enabling output to a file. The libraries used are Microsoft.Extensions.Logging and [Cysharp/ZLogger](https://github.com/Cysharp/ZLogger/) (a high-performance logger built on top of MS.E.Logging). If you are referencing `Microsoft.Extensions.Logging`, you can call `ConfigureLogging` from `ConsoleAppBuilder`.
 
